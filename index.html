@@ -1,0 +1,1546 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>Time Box Planner</title>
+<link rel="manifest" href="manifest.json"/>
+<meta name="theme-color" content="#f5f0e8"/>
+<link rel="apple-touch-icon" href="icons/icon-192.png"/>
+<style>
+
+:root {
+  --bg:        #f5f0e8;
+  --bg2:       #e8e0d0;
+  --ink:       #2c2c2c;
+  --ink-soft:  #555;
+  --surface:   #ffffff;
+  --panel:     #f9f7f2;
+  --border:    #2c2c2c;
+  --row-sep:   #e8e3dc;
+  --cell-dot:  #ddd8cf;
+  --cell-mid:  #c8c3bb;
+  --shadow:    #cccccc;
+  --day-btn-border: #cccccc;
+  --modal-focus: #2c2c2c;
+  --entry-text: #1a1a1a;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+body {
+  font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  background: var(--bg);
+  min-height: 100vh;
+  padding: 16px 10px 60px;
+  background-image: radial-gradient(circle at 20% 20%, var(--bg2) 0%, var(--bg) 60%);
+  transition: background .3s, color .3s;
+}
+h1 {
+  font-family: Georgia, serif;
+  font-size: 20px; font-weight: 700; color: var(--ink);
+  letter-spacing: .1em; text-align: center; margin-bottom: 4px;
+}
+.header-line { width: 50px; height: 2px; background: var(--ink); margin: 0 auto 12px; }
+
+/* ── Day-of-week selector ── */
+.day-row {
+  display: flex; gap: 5px; justify-content: center; margin-bottom: 12px;
+  max-width: 480px; margin-left: auto; margin-right: auto;
+}
+.day-btn {
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1.5px solid var(--day-btn-border); background: transparent;
+  color: var(--ink-soft); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all .15s; font-family: inherit;
+}
+.day-btn.active {
+  border: 2.5px solid var(--ink); background: var(--ink);
+  color: #fff; font-weight: 700; box-shadow: 2px 2px 0 var(--shadow);
+}
+.day-btn.today-ring {
+  border-color: var(--ink); border-width: 2px;
+}
+
+/* ── Theme switcher ── */
+.theme-row {
+  display: flex; gap: 7px; justify-content: center; flex-wrap: wrap;
+}
+.theme-dot {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer; transition: transform .15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.theme-dot.active { border-color: var(--ink); transform: scale(1.2); }
+
+/* ── Table ── */
+.table-wrap {
+  background: var(--surface); border: 2px solid var(--border); border-radius: 4px;
+  overflow: hidden; box-shadow: 4px 4px 0 var(--shadow);
+  max-width: 480px; margin: 0 auto;
+  position: relative;
+  contain: layout style;
+}
+.table-header {
+  display: grid;
+  grid-template-columns: 44px 1fr 1fr;
+  border-bottom: 2px solid var(--border);
+  background: var(--panel);
+  position: relative; z-index: 5;
+}
+.th0 { border-right: 2px solid var(--border); }
+.th1, .th2 { padding: 7px 4px; font-size: 11px; font-weight: 700; color: var(--ink); text-align: center; }
+.th1 { border-right: 1px solid var(--cell-dot); }
+
+#gridBody, #gridBodyEditor { display: block; width: 100%; contain: layout; }
+.time-row {
+  display: grid !important;
+  grid-template-columns: 44px 1fr 1fr 1fr 1fr;
+  height: 48px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--row-sep);
+}
+.hour-lbl {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; color: var(--ink);
+  border-right: 2px solid var(--border); background: var(--panel);
+}
+.qc {
+  height: 48px;
+  border-left: 1px dotted var(--cell-dot);
+  cursor: crosshair;
+  user-select: none; -webkit-user-select: none;
+}
+.qc.qc-mid { border-left: 1px solid var(--cell-mid); }
+
+/* ── SVG overlay ── */
+.entry-svg {
+  position: absolute; top: 0; left: 0;
+  pointer-events: none; z-index: 4; overflow: visible;
+}
+.entry-svg path, .entry-svg rect { pointer-events: all; cursor: pointer; }
+
+/* ── Entry label ── */
+.entry-label {
+  position: absolute; z-index: 6;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 3px 8px; overflow: hidden;
+  pointer-events: auto; cursor: pointer;
+  font-weight: 400; color: var(--entry-text, #1a1a1a);
+  word-break: keep-all; overflow-wrap: break-word; line-height: 1.35;
+}
+
+/* ── Drag preview ── */
+.dseg {
+  position: absolute; pointer-events: none; z-index: 10;
+  background: rgba(96, 165, 250, .18); border: 2px dashed #3b82f6; border-radius: 4px;
+}
+.dseg.conflict { background: rgba(239, 68, 68, .15); border-color: #ef4444; }
+
+.tooltip-el {
+  position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
+  background: #1e293b; color: #fff; font-size: 12px; font-weight: 600;
+  padding: 6px 16px; border-radius: 20px; pointer-events: none; z-index: 500;
+  white-space: nowrap; display: none; box-shadow: 0 2px 10px rgba(0,0,0,.3);
+}
+.hint { text-align: center; font-size: 11px; color: #bbb; margin-top: 10px; }
+
+/* ── Modal ── */
+.overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  z-index: 200; align-items: center; justify-content: center; padding: 16px;
+}
+.overlay.show { display: flex; }
+.modal {
+  background: var(--surface); border: 2px solid var(--border); border-radius: 8px;
+  padding: 18px; width: 100%; max-width: 320px;
+  box-shadow: 6px 6px 0 var(--shadow); max-height: 90vh; overflow-y: auto;
+}
+.modal h3 {
+  font-family: Georgia, serif; font-size: 15px; font-weight: 700; color: var(--ink);
+  border-bottom: 1.5px solid var(--border); padding-bottom: 8px; margin-bottom: 10px;
+}
+.dur-badge {
+  display: inline-block; background: var(--ink); color: var(--surface);
+  font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-bottom: 12px;
+}
+.lbl { font-size: 11px; font-weight: 600; color: var(--ink-soft); display: block; margin-bottom: 4px; }
+.modal input[type=text] {
+  width: 100%; padding: 9px 10px; border: 1.5px solid var(--cell-mid);
+  border-radius: 4px; font-size: 14px; outline: none; margin-bottom: 12px;
+  font-family: inherit; background: var(--surface); color: var(--ink);
+}
+.modal input[type=text]:focus { border-color: var(--modal-focus); }
+.blocked-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; cursor: pointer; }
+.blocked-row input { width: 16px; height: 16px; cursor: pointer; }
+.blocked-row span { font-size: 11px; font-weight: 600; color: var(--ink-soft); }
+.color-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; margin-bottom: 14px; }
+.cdot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--cell-dot); cursor: pointer; }
+.cdot.on { outline: 2.5px solid var(--ink); outline-offset: 2px; }
+.btn-row { display: flex; gap: 8px; }
+.bs { flex:1; padding:11px; background:var(--ink); color:var(--surface); border:none; border-radius:4px; font-weight:700; font-size:13px; cursor:pointer; font-family:inherit; }
+.bd { padding:11px 13px; background:var(--surface); color:#ef4444; border:1.5px solid #ef4444; border-radius:4px; font-weight:700; font-size:12px; cursor:pointer; font-family:inherit; }
+.bc { padding:11px 13px; background:var(--surface); color:var(--ink-soft); border:1.5px solid var(--cell-mid); border-radius:4px; font-weight:600; font-size:12px; cursor:pointer; font-family:inherit; }
+
+/* ── App top bar ── */
+.top-bar {
+  display: flex; align-items: center;
+  max-width: 480px; margin: 0 auto 4px; padding: 0 2px; gap: 8px;
+}
+.top-bar h1 { flex: 1; text-align: center; margin: 0; }
+.top-bar-right { width: 36px; flex-shrink: 0; }
+.menu-btn {
+  width: 36px; height: 36px; flex-shrink: 0;
+  background: none; border: none; cursor: pointer;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 5px;
+  padding: 4px; border-radius: 6px; transition: background .15s; z-index: 10;
+}
+.menu-btn:hover, .menu-btn.active { background: rgba(0,0,0,.08); }
+.menu-btn span {
+  display: block; width: 20px; height: 2px; background: var(--ink);
+  border-radius: 2px; transition: transform .2s, opacity .2s;
+}
+.menu-btn.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.menu-btn.active span:nth-child(2) { opacity: 0; }
+.menu-btn.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* ── Drawer ── */
+.drawer-backdrop {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 300;
+}
+.drawer-backdrop.show { display: block; }
+.drawer {
+  position: fixed; top: 0; left: 0; bottom: 0; width: 260px; z-index: 400;
+  background: var(--surface); border-right: 2px solid var(--border);
+  box-shadow: 4px 0 20px rgba(0,0,0,.18); transform: translateX(-110%);
+  transition: transform .25s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column; overflow: hidden; visibility: hidden;
+}
+.drawer.open { transform: translateX(0); visibility: visible; }
+.drawer-head {
+  padding: 20px 18px 14px; border-bottom: 1.5px solid var(--row-sep);
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.drawer-head-icon {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: var(--ink); color: var(--surface);
+  display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+}
+.drawer-head-text { flex: 1; min-width: 0; }
+.drawer-head-text strong { display: block; font-family: Georgia, serif; font-size: 14px; color: var(--ink); font-weight: 700; }
+.drawer-head-text small { font-size: 10px; color: var(--ink-soft); }
+.drawer-section {
+  padding: 10px 14px 4px; font-size: 9px; font-weight: 700;
+  letter-spacing: .1em; color: var(--ink-soft); text-transform: uppercase; flex-shrink: 0;
+}
+.drawer-scroll { flex: 1; overflow-y: auto; }
+.menu-item {
+  display: flex; align-items: center; gap: 12px; padding: 11px 16px; cursor: pointer;
+  border: none; background: none; width: 100%; text-align: left;
+  font-family: inherit; transition: background .12s; border-radius: 0; position: relative;
+}
+.menu-item:hover { background: var(--row-sep); }
+.menu-item.active-item { background: var(--panel); }
+.menu-item.active-item .mi-label { font-weight: 700; color: var(--ink); }
+.mi-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; flex-shrink: 0; background: var(--panel);
+}
+.mi-text { flex: 1; min-width: 0; }
+.mi-label { font-size: 13px; color: var(--ink); display: block; }
+.mi-sub { font-size: 10px; color: var(--ink-soft); display: block; margin-top: 1px; }
+.drawer-close-btn {
+  width: 30px; height: 30px; background: none; border: 1.5px solid var(--cell-mid);
+  border-radius: 6px; cursor: pointer; font-size: 14px; color: var(--ink-soft);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: background .12s; font-family: inherit;
+}
+.drawer-close-btn:hover { background: var(--row-sep); color: var(--ink); }
+.drawer-footer {
+  padding: 12px 16px; border-top: 1.5px solid var(--row-sep);
+  display: flex; gap: 8px; flex-shrink: 0;
+}
+.drawer-footer-btn {
+  flex: 1; padding: 8px; background: var(--panel);
+  border: 1.5px solid var(--cell-mid); border-radius: 6px;
+  font-size: 10px; font-weight: 600; color: var(--ink);
+  cursor: pointer; font-family: inherit; text-align: center; transition: background .12s;
+}
+.drawer-footer-btn:hover { background: var(--row-sep); }
+
+/* ── View system ── */
+.view { display: none; }
+.view.active { display: block; }
+
+/* ── Routine list view ── */
+.view-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 16px; max-width: 480px; margin-left: auto; margin-right: auto;
+}
+.view-back-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1.5px solid var(--cell-mid); background: var(--surface);
+  color: var(--ink); font-size: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: background .12s;
+}
+.view-back-btn:hover { background: var(--row-sep); }
+.view-title { flex: 1; font-family: Georgia, serif; font-size: 17px; font-weight: 700; color: var(--ink); }
+.view-action-btn {
+  padding: 7px 14px; background: var(--ink); color: var(--surface);
+  border: none; border-radius: 6px; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit; white-space: nowrap; transition: opacity .12s;
+}
+.view-action-btn:hover { opacity: .85; }
+.view-action-btn.secondary { background: var(--surface); color: var(--ink); border: 1.5px solid var(--cell-mid); }
+
+/* ── Routine cards ── */
+.routine-list { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.routine-card {
+  background: var(--surface); border: 2px solid var(--border); border-radius: 8px;
+  box-shadow: 3px 3px 0 var(--shadow); overflow: hidden; cursor: pointer;
+  transition: box-shadow .12s, transform .12s;
+}
+.routine-card:hover { box-shadow: 1px 1px 0 var(--shadow); transform: translate(1px,1px); }
+.routine-card-head {
+  display: flex; align-items: center; padding: 12px 14px 10px; gap: 10px;
+  border-bottom: 1px solid var(--row-sep);
+}
+.routine-card-icon {
+  width: 34px; height: 34px; border-radius: 8px; background: var(--panel);
+  display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+}
+.routine-card-name { flex: 1; font-size: 14px; font-weight: 700; color: var(--ink); }
+.routine-card-meta { font-size: 10px; color: var(--ink-soft); margin-top: 1px; }
+.routine-card-actions { display: flex; gap: 6px; padding: 8px 12px; background: var(--panel); }
+.rc-btn {
+  flex: 1; padding: 7px 6px; font-size: 11px; font-weight: 600; border-radius: 5px;
+  cursor: pointer; font-family: inherit; text-align: center;
+  border: 1.5px solid var(--cell-mid); background: var(--surface); color: var(--ink); transition: background .1s;
+}
+.rc-btn:hover { background: var(--row-sep); }
+.rc-btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.rc-btn.primary:hover { opacity: .85; }
+.rc-btn.danger { color: #ef4444; border-color: #f8a0a0; }
+.routine-empty { text-align: center; padding: 40px 20px; color: var(--ink-soft); font-size: 13px; line-height: 1.8; }
+.routine-empty .icon { font-size: 36px; margin-bottom: 8px; }
+
+/* ── Routine editor ── */
+.editor-name-input {
+  flex: 1; padding: 8px 10px; border: 1.5px solid var(--cell-mid); border-radius: 6px;
+  font-size: 14px; font-weight: 700; background: var(--surface);
+  color: var(--ink); font-family: Georgia, serif; outline: none;
+}
+.editor-name-input:focus { border-color: var(--border); }
+
+/* ── Settings panel ── */
+.settings-section {
+  max-width: 480px; margin: 0 auto 20px; background: var(--surface);
+  border: 2px solid var(--border); border-radius: 8px; box-shadow: 3px 3px 0 var(--shadow); overflow: hidden;
+}
+.settings-section-title {
+  padding: 10px 14px; font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  color: var(--ink-soft); background: var(--panel); border-bottom: 1px solid var(--row-sep); text-transform: uppercase;
+}
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--row-sep); gap: 12px;
+}
+.settings-row:last-child { border-bottom: none; }
+.settings-row-label { font-size: 13px; color: var(--ink); font-weight: 600; }
+.settings-row-sub { font-size: 10px; color: var(--ink-soft); margin-top: 2px; }
+.settings-row-right { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.toggle-switch {
+  width: 44px; height: 24px; border-radius: 12px; background: var(--cell-mid);
+  border: none; cursor: pointer; position: relative; transition: background .2s; flex-shrink: 0;
+}
+.toggle-switch.on { background: var(--ink); }
+.toggle-switch::after {
+  content: ''; position: absolute; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; top: 3px; left: 3px; transition: transform .2s;
+}
+.toggle-switch.on::after { transform: translateX(20px); }
+
+/* ── Apply routine to day modal ── */
+.apply-day-row {
+  display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;
+  margin: 14px 0;
+}
+.apply-day-btn {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1.5px solid var(--cell-mid); background: var(--surface);
+  color: var(--ink-soft); font-size: 12px; font-weight: 600;
+  cursor: pointer; font-family: inherit; transition: all .12s;
+}
+.apply-day-btn.selected { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.apply-day-btn.applied { background: var(--panel); border-color: var(--ink); color: var(--ink); position: relative; }
+.apply-day-btn.applied::after {
+  content: '✓'; position: absolute; bottom: -2px; right: -2px;
+  font-size: 9px; width: 14px; height: 14px; line-height: 14px; text-align: center;
+  background: var(--ink); color: var(--surface); border-radius: 50%;
+}
+.apply-day-btn.will-remove {
+  background: var(--surface); border: 1.5px dashed #ef4444; color: #ef4444;
+}
+.apply-day-btn.locked {
+  background: var(--cell-dot); color: var(--cell-mid);
+  border-color: var(--cell-dot); cursor: not-allowed; opacity: .6;
+  position: relative;
+}
+.apply-day-btn.locked::after {
+  content: '🔒'; position: absolute; bottom: -4px; right: -4px;
+  font-size: 10px; line-height: 1;
+}
+
+/* ── Current time highlight ── */
+.hour-lbl.now {
+  background: var(--ink); color: var(--surface); font-weight: 700;
+  position: relative;
+}
+.hour-lbl.now::after {
+  content: ''; position: absolute; right: -5px; top: 50%; transform: translateY(-50%);
+  width: 0; height: 0; border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent; border-left: 5px solid var(--ink);
+}
+
+/* ── Empty cell highlight ── */
+.qc.empty-hl {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent, transparent 4px,
+    var(--row-sep) 4px, var(--row-sep) 5px
+  );
+  opacity: .5;
+}
+
+/* ── Compact mode ── */
+.table-wrap.compact .time-row { height: 32px; min-height: 32px; }
+.table-wrap.compact .qc { height: 32px; }
+.table-wrap.compact .hour-lbl { font-size: 10px; }
+
+</style>
+</head>
+<body>
+
+<!-- ═══ TOP BAR ═══ -->
+<div class="top-bar">
+  <button class="menu-btn" id="menuBtn" aria-label="메뉴">
+    <span></span><span></span><span></span>
+  </button>
+  <h1>Time Box Planner</h1>
+  <div class="top-bar-right"></div>
+</div>
+<div class="header-line"></div>
+
+<!-- ═══ VIEW: MAIN ═══ -->
+<div class="view active" id="viewMain">
+  <div class="day-row" id="dayRow"></div>
+
+  <div class="table-wrap" id="tableWrap">
+    <div class="table-header">
+      <div class="th0"></div>
+      <div class="th1">30 mins</div>
+      <div class="th2">30 mins</div>
+    </div>
+    <div id="gridBody" style="position:relative;"></div>
+  </div>
+  <div class="tooltip-el" id="tooltip"></div>
+  <p class="hint">셀을 드래그해서 시간 범위 선택 (15분 단위)</p>
+</div>
+
+<!-- ═══ VIEW: 나의 타임박스 ═══ -->
+<div class="view" id="viewRoutines">
+  <div class="view-header">
+    <button class="view-back-btn" id="routinesBackBtn">←</button>
+    <span class="view-title">나의 타임박스</span>
+    <button class="view-action-btn secondary" id="routineSettingsBtn">⚙ 설정</button>
+    <button class="view-action-btn" id="addRoutineBtn">＋ 새 루틴</button>
+  </div>
+  <div class="routine-list" id="routineList"></div>
+</div>
+
+<!-- ═══ VIEW: ROUTINE EDITOR ═══ -->
+<div class="view" id="viewEditor">
+  <div class="view-header" style="margin-bottom:8px;">
+    <button class="view-back-btn" id="editorBackBtn">←</button>
+    <input class="editor-name-input" id="editorNameInput" placeholder="루틴 이름 입력..."/>
+    <button class="view-action-btn" id="editorSaveBtn">저장</button>
+  </div>
+  <div class="table-wrap" id="tableWrapEditor">
+    <div class="table-header">
+      <div class="th0"></div>
+      <div class="th1">30 mins</div>
+      <div class="th2">30 mins</div>
+    </div>
+    <div id="gridBodyEditor" style="position:relative;"></div>
+  </div>
+  <div class="tooltip-el" id="tooltipEditor"></div>
+  <p class="hint">셀을 드래그해서 시간 범위 선택 (15분 단위)</p>
+</div>
+
+<!-- ═══ VIEW: 설정 ═══ -->
+<div class="view" id="viewSettings">
+  <div class="view-header">
+    <button class="view-back-btn" id="settingsBackBtn">←</button>
+    <span class="view-title">설정</span>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">🎨 테마</div>
+    <div class="settings-row" style="justify-content:center;">
+      <div class="theme-row" id="themeRow"></div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">표시 옵션</div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">현재 시각 표시</div>
+        <div class="settings-row-sub">현재 시간대 행을 강조 표시</div>
+      </div>
+      <div class="settings-row-right">
+        <button class="toggle-switch on" id="toggleNowLine"></button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">빈 시간대 강조</div>
+        <div class="settings-row-sub">미입력 구간을 연하게 표시</div>
+      </div>
+      <div class="settings-row-right">
+        <button class="toggle-switch" id="toggleEmptyHL"></button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">컴팩트 모드</div>
+        <div class="settings-row-sub">그리드 행 높이를 축소하여 더 많은 시간 표시</div>
+      </div>
+      <div class="settings-row-right">
+        <button class="toggle-switch" id="toggleCompact"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">동작</div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">일정 삭제 확인</div>
+        <div class="settings-row-sub">개별 일정 삭제 시 확인 대화상자 표시</div>
+      </div>
+      <div class="settings-row-right">
+        <button class="toggle-switch" id="toggleConfirmDel"></button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">일요일부터 시작</div>
+        <div class="settings-row-sub">요일 순서를 일~토로 변경</div>
+      </div>
+      <div class="settings-row-right">
+        <button class="toggle-switch" id="toggleSunStart"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">데이터</div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">모든 데이터 초기화</div>
+        <div class="settings-row-sub">저장된 루틴과 일정을 모두 삭제</div>
+      </div>
+      <div class="settings-row-right">
+        <button class="view-action-btn secondary" id="clearAllBtn" style="font-size:11px;padding:6px 10px;">초기화</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: entry add/edit ═══ -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h3 id="mTitle"></h3>
+    <div class="dur-badge" id="mBadge"></div>
+    <label class="lbl">내용</label>
+    <input type="text" id="mText" placeholder="일정 내용 입력..."/>
+    <label class="blocked-row">
+      <input type="checkbox" id="mBold"/>
+      <span>굵게 (볼드)</span>
+    </label>
+    <label class="blocked-row">
+      <input type="checkbox" id="mBlocked"/>
+      <span>빗금 (차단된 시간)</span>
+    </label>
+    <div id="mColorWrap">
+      <label class="lbl">색상</label>
+      <div class="color-row" id="mColors"></div>
+    </div>
+    <div class="btn-row">
+      <button class="bs" id="btnSave">저장</button>
+      <button class="bd" id="btnDel" style="display:none">삭제</button>
+      <button class="bc" id="btnCancel">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: apply routine to day ═══ -->
+<div class="overlay" id="applyOverlay">
+  <div class="modal">
+    <h3 id="applyTitle" style="margin-bottom:6px;"></h3>
+    <p style="font-size:12px;color:var(--ink-soft);margin-bottom:4px;">요일을 눌러 적용/해제 (✓ = 적용됨)</p>
+    <div class="apply-day-row" id="applyDayRow"></div>
+    <p id="applyLockInfo" style="font-size:10px;color:var(--ink-soft);text-align:center;margin-bottom:10px;display:none;"></p>
+    <div class="btn-row">
+      <button class="bs" id="applyConfirmBtn">적용</button>
+      <button class="bc" id="applyCancelBtn">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: confirm ═══ -->
+<div class="overlay" id="confirmOverlay">
+  <div class="modal">
+    <h3 id="confirmTitle"></h3>
+    <p id="confirmMsg" style="font-size:12px;color:var(--ink-soft);margin-bottom:16px;line-height:1.6;"></p>
+    <div class="btn-row">
+      <button class="bd" id="confirmYesBtn" style="flex:1;">삭제</button>
+      <button class="bc" id="confirmNoBtn" style="flex:1;">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DRAWER ═══ -->
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div class="drawer-head-icon">⏱️</div>
+    <div class="drawer-head-text">
+      <strong>Time Box Planner</strong>
+      <small id="drawerDayLine">주간 타임박스 플래너</small>
+    </div>
+    <button class="drawer-close-btn" id="drawerCloseBtn" aria-label="메뉴 닫기">✕</button>
+  </div>
+  <div class="drawer-scroll">
+    <div class="drawer-section">메뉴</div>
+    <button class="menu-item active-item" id="drawerMainMenu">
+      <div class="mi-icon">⏱️</div>
+      <div class="mi-text">
+        <span class="mi-label">주간 플래너</span>
+        <span class="mi-sub">요일별 타임박스</span>
+      </div>
+    </button>
+    <button class="menu-item" id="drawerRoutinesMenu">
+      <div class="mi-icon">📋</div>
+      <div class="mi-text">
+        <span class="mi-label">나의 타임박스</span>
+        <span class="mi-sub">루틴 목록 관리</span>
+      </div>
+    </button>
+  </div>
+  <div class="drawer-footer">
+    <button class="drawer-footer-btn" id="drawerSettingsBtn">⚙️ 설정</button>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// DOM 캐싱
+// ═══════════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const DOM = {
+  menuBtn:        $('menuBtn'),
+  drawer:         $('drawer'),
+  drawerBackdrop: $('drawerBackdrop'),
+  drawerCloseBtn: $('drawerCloseBtn'),
+  drawerDayLine:  $('drawerDayLine'),
+  drawerMainMenu:     $('drawerMainMenu'),
+  drawerRoutinesMenu: $('drawerRoutinesMenu'),
+  drawerSettingsBtn:  $('drawerSettingsBtn'),
+  themeRow:       $('themeRow'),
+  dayRow:         $('dayRow'),
+  gridBody:       $('gridBody'),
+  gridBodyEditor: $('gridBodyEditor'),
+  tableWrap:      $('tableWrap'),
+  tableWrapEditor:$('tableWrapEditor'),
+  tooltip:        $('tooltip'),
+  tooltipEditor:  $('tooltipEditor'),
+  overlay:        $('overlay'),
+  applyOverlay:   $('applyOverlay'),
+  applyTitle:     $('applyTitle'),
+  applyDayRow:    $('applyDayRow'),
+  applyConfirmBtn:$('applyConfirmBtn'),
+  applyCancelBtn: $('applyCancelBtn'),
+  confirmOverlay: $('confirmOverlay'),
+  confirmTitle:   $('confirmTitle'),
+  confirmMsg:     $('confirmMsg'),
+  confirmYesBtn:  $('confirmYesBtn'),
+  confirmNoBtn:   $('confirmNoBtn'),
+  mTitle:         $('mTitle'),
+  mBadge:         $('mBadge'),
+  mText:          $('mText'),
+  mBold:          $('mBold'),
+  mBlocked:       $('mBlocked'),
+  mColorWrap:     $('mColorWrap'),
+  mColors:        $('mColors'),
+  btnSave:        $('btnSave'),
+  btnDel:         $('btnDel'),
+  btnCancel:      $('btnCancel'),
+  routineList:    $('routineList'),
+  routinesBackBtn:    $('routinesBackBtn'),
+  addRoutineBtn:      $('addRoutineBtn'),
+  routineSettingsBtn: $('routineSettingsBtn'),
+  settingsBackBtn:    $('settingsBackBtn'),
+  editorBackBtn:      $('editorBackBtn'),
+  editorSaveBtn:      $('editorSaveBtn'),
+  editorNameInput:    $('editorNameInput'),
+  clearAllBtn:        $('clearAllBtn'),
+  toggleNowLine:      $('toggleNowLine'),
+  toggleEmptyHL:      $('toggleEmptyHL'),
+  toggleCompact:      $('toggleCompact'),
+  toggleConfirmDel:   $('toggleConfirmDel'),
+  toggleSunStart:     $('toggleSunStart'),
+};
+
+// ── Constants ─────────────────────────────────────────────────
+// 요일 키 순서는 settings.sunStart에 따라 동적
+const DAY_KEYS_MON = ['mon','tue','wed','thu','fri','sat','sun'];
+const DAY_LABEL_MON = ['월','화','수','목','금','토','일'];
+const DAY_KEYS_SUN = ['sun','mon','tue','wed','thu','fri','sat'];
+const DAY_LABEL_SUN = ['일','월','화','수','목','금','토'];
+const JS_DAY_TO_IDX_MON = [6, 0, 1, 2, 3, 4, 5]; // getDay() → mon-start index
+const JS_DAY_TO_IDX_SUN = [0, 1, 2, 3, 4, 5, 6]; // getDay() → sun-start index
+
+function getDayKeys()  { return settings.sunStart ? DAY_KEYS_SUN : DAY_KEYS_MON; }
+function getDayLabel() { return settings.sunStart ? DAY_LABEL_SUN : DAY_LABEL_MON; }
+function getJsMap()    { return settings.sunStart ? JS_DAY_TO_IDX_SUN : JS_DAY_TO_IDX_MON; }
+
+const HOURS = [...Array.from({length:19}, (_,i) => i + 5), 0, 1, 2, 3];
+const NC    = 4;
+const NR    = HOURS.length;
+const ROW_H_NORMAL = 48;
+const ROW_H_COMPACT = 32;
+let   ROW_H = 48;
+const LBL_W = 44;
+const R     = 5;
+const HEADER_H = 34;   // .table-header 높이 (px)
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const COLORS_LIGHT = [
+  {bg:'#fde8e8',bd:'#f87171'},{bg:'#fef3c7',bd:'#fbbf24'},
+  {bg:'#d1fae5',bd:'#34d399'},{bg:'#dbeafe',bd:'#60a5fa'},
+  {bg:'#ede9fe',bd:'#a78bfa'},{bg:'#fce7f3',bd:'#f472b6'},
+  {bg:'#f3f4f6',bd:'#9ca3af'},{bg:'#ffffff',bd:'#d1d5db'},
+];
+const COLORS_DARK = [
+  {bg:'#5c2626',bd:'#f87171'},{bg:'#5c4516',bd:'#fbbf24'},
+  {bg:'#1a4a32',bd:'#34d399'},{bg:'#1a2e55',bd:'#60a5fa'},
+  {bg:'#312055',bd:'#a78bfa'},{bg:'#551a3a',bd:'#f472b6'},
+  {bg:'#363636',bd:'#9ca3af'},{bg:'#444444',bd:'#6b7280'},
+];
+function getColors() { return THEMES[themeIdx].dark ? COLORS_DARK : COLORS_LIGHT; }
+
+const THEMES = [
+  { name:'크림',swatch:'#f5f0e8',dark:false,bg:'#f5f0e8',bg2:'#e8e0d0',ink:'#2c2c2c',inkSoft:'#555',surface:'#ffffff',panel:'#f9f7f2',border:'#2c2c2c',rowSep:'#e8e3dc',cellDot:'#ddd8cf',cellMid:'#c8c3bb',shadow:'#ccc' },
+  { name:'야간',swatch:'#1a1f2e',dark:true,bg:'#1a1f2e',bg2:'#141824',ink:'#e8e4d8',inkSoft:'#9aa0b0',surface:'#242938',panel:'#1e2332',border:'#4a5270',rowSep:'#2c3147',cellDot:'#2c3147',cellMid:'#3d4466',shadow:'#0d1018' },
+  { name:'숲',swatch:'#1e3a2f',dark:false,bg:'#eef4f0',bg2:'#dceee3',ink:'#1e3a2f',inkSoft:'#4a6b56',surface:'#f8faf8',panel:'#edf5ef',border:'#2e5c40',rowSep:'#d4e8d8',cellDot:'#cde4d2',cellMid:'#a8cdb0',shadow:'#b0cdb8' },
+  { name:'로즈',swatch:'#7c2d42',dark:false,bg:'#fdf1f3',bg2:'#f8e0e4',ink:'#7c2d42',inkSoft:'#a05a6a',surface:'#ffffff',panel:'#fdf4f5',border:'#c25474',rowSep:'#f5d8de',cellDot:'#f0ccd4',cellMid:'#e8aab8',shadow:'#e8b8c2' },
+  { name:'슬레이트',swatch:'#2c4a6e',dark:false,bg:'#eef2f8',bg2:'#dde4f0',ink:'#1e3558',inkSoft:'#4a6080',surface:'#ffffff',panel:'#f0f4fa',border:'#2c4a6e',rowSep:'#d4dcea',cellDot:'#ccd8e8',cellMid:'#a8bcd4',shadow:'#b8c8dc' },
+  { name:'황금',swatch:'#8b6914',dark:false,bg:'#fdf8ec',bg2:'#f5edcc',ink:'#5c440a',inkSoft:'#8b6914',surface:'#fffdf5',panel:'#fdf8e8',border:'#b8880e',rowSep:'#f0e4b8',cellDot:'#ecddb0',cellMid:'#d4c080',shadow:'#d4c080' },
+];
+
+let themeIdx = 0;
+let activeGrid = 'main';
+try { themeIdx = parseInt(localStorage.getItem('tbp8_theme') || '0') || 0; } catch(_) {}
+
+// ── Theme ────────────────────────────────────────────────────
+const THEME_PROP_MAP = {
+  bg:'--bg',bg2:'--bg2',ink:'--ink',inkSoft:'--ink-soft',surface:'--surface',
+  panel:'--panel',border:'--border',rowSep:'--row-sep',cellDot:'--cell-dot',
+  cellMid:'--cell-mid',shadow:'--shadow'
+};
+
+function applyTheme(idx) {
+  themeIdx = idx;
+  const t = THEMES[idx], s = document.documentElement.style;
+  for (const [k,p] of Object.entries(THEME_PROP_MAP)) s.setProperty(p, t[k]);
+  s.setProperty('--modal-focus', t.border);
+  s.setProperty('--day-btn-border', t.cellMid);
+  s.setProperty('--entry-text', t.dark ? '#f0f0f0' : '#1a1a1a');
+  try { localStorage.setItem('tbp8_theme', idx); } catch(_) {}
+  renderThemeDots();
+  // 테마 변경 시 엔트리 색상도 갱신
+  if(activeGrid === 'main') requestAnimationFrame(renderTable);
+}
+
+// ── Utility ──────────────────────────────────────────────────
+function toIdx(row,col) { return row*NC+col; }
+function toRow(idx)     { return (idx/NC)|0; }
+function toCol(idx)     { return idx%NC; }
+function toMins(idx)    { return HOURS[toRow(idx)]*60+toCol(idx)*15; }
+function fmt(m)         { return ((m/60)|0)+':'+String(m%60).padStart(2,'0'); }
+function durLabel(s)    { const m=s*15,h=(m/60)|0,r=m%60; return h?(r?`${h}시간 ${r}분`:`${h}시간`):`${r}분`; }
+function rangeLabel(si,ei) { return `${fmt(toMins(si))} ~ ${fmt(toMins(ei)+15)}  (${durLabel(ei-si+1)})`; }
+function uid() {
+  if(typeof crypto!=='undefined'&&crypto.randomUUID) return crypto.randomUUID().slice(0,8);
+  return Math.random().toString(36).slice(2,9);
+}
+
+function todayKey() { return getDayKeys()[getJsMap()[new Date().getDay()]]; }
+
+// ── ColW cache ───────────────────────────────────────────────
+let _cachedColW=0, _cachedColWGrid='';
+function getColW() {
+  if (_cachedColWGrid!==activeGrid) {
+    const el=activeGrid==='editor'?DOM.tableWrapEditor:DOM.tableWrap;
+    _cachedColW=(el.clientWidth-LBL_W)/NC; _cachedColWGrid=activeGrid;
+  }
+  return _cachedColW;
+}
+function invalidateColW() { _cachedColWGrid=''; }
+
+// ── Geometry ─────────────────────────────────────────────────
+function getSegs(si,ei) {
+  const segs=[]; let i=si;
+  while(i<=ei){ const row=toRow(i),c1=toCol(i),re=Math.min(toIdx(row,NC-1),ei); segs.push({row,c1,c2:toCol(re)}); i=re+1; }
+  return segs;
+}
+function getCells(si,ei) {
+  const c=new Array(ei-si+1); for(let idx=si,i=0;idx<=ei;idx++,i++) c[i]={row:toRow(idx),col:toCol(idx)}; return c;
+}
+function cellKey(r,c) { return r*1000+c; }
+
+function findComponents(cells) {
+  const set=new Set(cells.map(c=>cellKey(c.row,c.col))), visited=new Set(), comps=[];
+  for(const cell of cells) {
+    const key=cellKey(cell.row,cell.col);
+    if(visited.has(key)) continue;
+    const comp=[],queue=[cell]; visited.add(key);
+    while(queue.length) {
+      const c=queue.shift(); comp.push(c);
+      for(const n of [{row:c.row-1,col:c.col},{row:c.row+1,col:c.col},{row:c.row,col:c.col-1},{row:c.row,col:c.col+1}]) {
+        const nk=cellKey(n.row,n.col);
+        if(!visited.has(nk)&&set.has(nk)){ visited.add(nk); queue.push(n); }
+      }
+    }
+    comps.push(comp);
+  }
+  return comps;
+}
+
+function buildComponentPath(cells,cw) {
+  const set=new Set(cells.map(c=>cellKey(c.row,c.col)));
+  const has=(r,c)=>set.has(cellKey(r,c));
+  const edgeMap=new Map();
+  const addE=(r1,c1,r2,c2)=>{ const k=cellKey(r1,c1),a=edgeMap.get(k); if(a)a.push({r:r2,c:c2}); else edgeMap.set(k,[{r:r2,c:c2}]); };
+  for(const{row,col}of cells){
+    if(!has(row-1,col))addE(row,col,row,col+1);
+    if(!has(row,col+1))addE(row,col+1,row+1,col+1);
+    if(!has(row+1,col))addE(row+1,col+1,row+1,col);
+    if(!has(row,col-1))addE(row+1,col,row,col);
+  }
+  const toX=c=>LBL_W+c*cw, toY=r=>r*ROW_H, parts=[];
+  for(const[sk]of edgeMap){
+    const ns=edgeMap.get(sk); if(!ns||!ns.length)continue;
+    const sr=(sk/1000)|0,sc=sk%1000,pts=[]; let cr=sr,cc=sc;
+    while(true){ const k=cellKey(cr,cc),n=edgeMap.get(k); if(!n||!n.length)break; pts.push({r:cr,c:cc}); const nx=n.pop(); cr=nx.r;cc=nx.c; if(cr===sr&&cc===sc)break; }
+    if(pts.length<3)continue;
+    parts.push(traceRounded(pts.map(p=>({x:toX(p.c),y:toY(p.r)}))));
+  }
+  return parts.join(' ');
+}
+
+function traceRounded(pts) {
+  const rr=R,n=pts.length,p=[];
+  for(let i=0;i<n;i++){
+    const pt=pts[i],prev=pts[(i-1+n)%n],next=pts[(i+1)%n];
+    const dx1=Math.sign(pt.x-prev.x),dy1=Math.sign(pt.y-prev.y),dx2=Math.sign(next.x-pt.x),dy2=Math.sign(next.y-pt.y);
+    if((dx1*dy2-dy1*dx2)>0){ p.push((i?'L':'M')+(pt.x-rr*dx1)+','+(pt.y-rr*dy1)); p.push('Q'+pt.x+','+pt.y+' '+(pt.x+rr*dx2)+','+(pt.y+rr*dy2)); }
+    else p.push((i?'L':'M')+pt.x+','+pt.y);
+  }
+  p.push('Z'); return p.join(' ');
+}
+
+function componentLabelBox(cells,cw) {
+  const rowMap=new Map();
+  for(const{row,col}of cells){ const r=rowMap.get(row); if(r){if(col<r.min)r.min=col;if(col>r.max)r.max=col;}else rowMap.set(row,{min:col,max:col}); }
+  const rows=[...rowMap.keys()].sort((a,b)=>a-b);
+  let cMin=-Infinity,cMax=Infinity;
+  for(const r of rows){const{min,max}=rowMap.get(r);cMin=Math.max(cMin,min);cMax=Math.min(cMax,max);}
+  if(cMin>cMax) return componentBBox(cells,cw);
+  const valid=rows.filter(r=>{const{min,max}=rowMap.get(r);return min<=cMin&&max>=cMax;});
+  if(!valid.length) return componentBBox(cells,cw);
+  // 연속 행 최장 구간 탐색 (올바른 길이 계산)
+  let bs=0, bl=1, cs=0, cl=1;
+  for(let i=1;i<valid.length;i++){
+    if(valid[i]===valid[i-1]+1){ cl++; if(cl>bl){bl=cl;bs=cs;} }
+    else { cs=i; cl=1; }
+  }
+  return{top:valid[bs]*ROW_H,left:LBL_W+cMin*cw,width:(cMax-cMin+1)*cw,height:bl*ROW_H};
+}
+function componentBBox(cells,cw) {
+  let minR=Infinity,maxR=-Infinity,minC=Infinity,maxC=-Infinity;
+  for(const{row,col}of cells){if(row<minR)minR=row;if(row>maxR)maxR=row;if(col<minC)minC=col;if(col>maxC)maxC=col;}
+  return{top:minR*ROW_H,left:LBL_W+minC*cw,width:(maxC-minC+1)*cw,height:(maxR-minR+1)*ROW_H};
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DATA — db 키가 요일: { mon:[], tue:[], ... }
+// ═══════════════════════════════════════════════════════════════
+let db       = {};  // { mon:[entry,...], tue:[], ... }
+let routines = {};
+let settings = {
+  emptyHL: false,
+  showNowLine: true,
+  compactMode: false,
+  confirmDel: false,
+  sunStart: false,
+};
+
+try {
+  const saved = JSON.parse(localStorage.getItem('tbp10') || '{}');
+  db       = saved.db       || {};
+  routines = saved.routines || {};
+  if (saved.settings) Object.assign(settings, saved.settings);
+} catch(_) {}
+
+let _saveTimer = 0;
+function save() { clearTimeout(_saveTimer); _saveTimer = setTimeout(_flush, 100); }
+function _flush() { try { localStorage.setItem('tbp10', JSON.stringify({db,routines,settings})); } catch(_) {} }
+function saveImmediate() { clearTimeout(_saveTimer); _flush(); }
+
+// ── State ────────────────────────────────────────────────────
+let currentDay = todayKey();
+let editingRid = null;
+let applyRid   = null;
+let applySelDays = new Set();
+
+let form  = {text:'',color:0,blocked:false,bold:false};
+let modal = null;
+let drag  = null;
+let pdown = false;
+
+// ── Entries ──────────────────────────────────────────────────
+function getEntries()       { return db[currentDay] || []; }
+function setEntries(arr)    { db[currentDay] = arr; }
+function getEditorEntries() { return editingRid ? (routines[editingRid]?.entries || []) : []; }
+function setEditorEntries(a){ if(editingRid) routines[editingRid].entries=a; }
+function currentEntries()   { return activeGrid==='editor'?getEditorEntries():getEntries(); }
+function saveEntries(arr)   { if(activeGrid==='editor')setEditorEntries(arr); else setEntries(arr); }
+
+// ── Occupied cache ───────────────────────────────────────────
+let _occSet=null, _occRef=null;
+function rebuildOcc(){ const e=currentEntries(); if(_occRef===e)return; _occRef=e; _occSet=new Set(); for(const en of e)for(let i=en.si;i<=en.ei;i++)_occSet.add(i); }
+function occupied(i){ rebuildOcc(); return _occSet.has(i); }
+function rangeConflict(si,ei){ rebuildOcc(); for(let i=si;i<=ei;i++)if(_occSet.has(i))return true; return false; }
+function invalidateOcc(){ _occRef=null; _occSet=null; }
+
+// ═══════════════════════════════════════════════════════════════
+// VIEW
+// ═══════════════════════════════════════════════════════════════
+const _viewEls = document.querySelectorAll('.view');
+function showView(id) {
+  for(const v of _viewEls)v.classList.remove('active');
+  $(id).classList.add('active');
+  closeDrawer();
+  // viewMain 전환 시 항상 그리드 재렌더 (display:none 상태에서 render 방지)
+  if(id==='viewMain'){ activeGrid='main'; renderDayRow(); requestAnimationFrame(renderTable); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 요일 버튼 렌더
+// ═══════════════════════════════════════════════════════════════
+function renderDayRow() {
+  const today = todayKey();
+  const frag = document.createDocumentFragment();
+  getDayKeys().forEach((key, i) => {
+    const btn = document.createElement('button');
+    let cls = 'day-btn';
+    if (key === currentDay) cls += ' active';
+    else if (key === today) cls += ' today-ring';
+    btn.className = cls;
+    btn.textContent = getDayLabel()[i];
+    btn.onclick = () => switchDay(key);
+    frag.appendChild(btn);
+  });
+  DOM.dayRow.innerHTML = '';
+  DOM.dayRow.appendChild(frag);
+}
+
+function switchDay(key) {
+  currentDay = key;
+  invalidateOcc();
+  renderDayRow();
+  requestAnimationFrame(renderTable);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GRID RENDER
+// ═══════════════════════════════════════════════════════════════
+const _rowTpl = (() => {
+  const r = document.createElement('div'); r.className = 'time-row';
+  const l = document.createElement('div'); l.className = 'hour-lbl'; r.appendChild(l);
+  for(let c=0;c<NC;c++){ const d=document.createElement('div'); d.className='qc'+(c===2?' qc-mid':''); r.appendChild(d); }
+  return r;
+})();
+
+function renderTable() {
+  invalidateColW(); invalidateOcc();
+  ROW_H = settings.compactMode ? ROW_H_COMPACT : ROW_H_NORMAL;
+  const isEd = activeGrid==='editor';
+  const body = isEd ? DOM.gridBodyEditor : DOM.gridBody;
+  const wrap = isEd ? DOM.tableWrapEditor : DOM.tableWrap;
+
+  wrap.classList.toggle('compact', !!settings.compactMode);
+
+  // 그리드 행 생성
+  _renderGridRows(body, isEd);
+
+  const entries = currentEntries();
+
+  // 빈 시간대 강조
+  if(settings.emptyHL && !isEd) _applyEmptyHighlight(body);
+
+  if(!entries.length) return;
+
+  const cw=getColW(), totalW=wrap.clientWidth, totalH=NR*ROW_H;
+
+  // SVG 엔트리 렌더
+  const svg = _createEntrySVG(totalW, totalH);
+  const colors = getColors();
+  for(const en of entries){
+    const col=colors[en.color]||colors[0], cells=getCells(en.si,en.ei), comps=findComponents(cells);
+    for(const comp of comps){
+      const path=document.createElementNS(SVG_NS,'path');
+      path.setAttribute('d',buildComponentPath(comp,cw));
+      path.setAttribute('data-entry',en.id); path.setAttribute('clip-path','url(#cellClip)');
+      if(en.blocked){path.setAttribute('fill','url(#hatch)');path.setAttribute('stroke','#bbb');}
+      else{path.setAttribute('fill',col.bg);path.setAttribute('stroke',col.bd);}
+      path.setAttribute('stroke-width','1.5');path.setAttribute('stroke-linejoin','round');
+      svg.appendChild(path);
+    }
+  }
+  body.appendChild(svg);
+
+  // 텍스트 라벨 렌더
+  _renderEntryLabels(body, entries, cw);
+
+  // 이벤트 위임
+  const entryMap=new Map();
+  for(const en of entries) entryMap.set(en.id,en);
+  body.onclick=e=>{ const t=e.target.closest('[data-entry]'); if(!t)return; e.stopPropagation(); const en=entryMap.get(t.dataset.entry); if(en)openEdit(en); };
+  body.onmousedown=e=>{ if(e.target.closest('[data-entry]')||e.target.closest('.entry-label'))e.stopPropagation(); };
+}
+
+function _renderGridRows(body, isEd) {
+  const frag = document.createDocumentFragment();
+  const nowHour = new Date().getHours();
+  const nowRowIdx = (!isEd && settings.showNowLine) ? HOURS.indexOf(nowHour) : -1;
+  for(let r=0;r<NR;r++){
+    const row=_rowTpl.cloneNode(true);
+    const lbl=row.firstChild;
+    lbl.textContent=HOURS[r];
+    if(r===nowRowIdx) lbl.classList.add('now');
+    frag.appendChild(row);
+  }
+  body.innerHTML=''; body.appendChild(frag);
+}
+
+function _applyEmptyHighlight(body) {
+  rebuildOcc();
+  const allRows=body.querySelectorAll('.time-row');
+  for(let r=0;r<NR;r++){
+    const rowEl=allRows[r]; if(!rowEl)continue;
+    const cells=rowEl.querySelectorAll('.qc');
+    for(let c=0;c<NC;c++){
+      if(!_occSet||!_occSet.has(r*NC+c)){ if(cells[c])cells[c].classList.add('empty-hl'); }
+    }
+  }
+}
+
+function _createEntrySVG(totalW, totalH) {
+  const svg=document.createElementNS(SVG_NS,'svg');
+  svg.setAttribute('class','entry-svg');
+  svg.setAttribute('width',totalW); svg.setAttribute('height',totalH);
+  svg.style.cssText=`width:${totalW}px;height:${totalH}px;overflow:hidden`;
+
+  const defs=document.createElementNS(SVG_NS,'defs');
+  const cp=document.createElementNS(SVG_NS,'clipPath'); cp.setAttribute('id','cellClip');
+  const cr=document.createElementNS(SVG_NS,'rect');
+  cr.setAttribute('x',LBL_W);cr.setAttribute('y',0);cr.setAttribute('width',totalW-LBL_W);cr.setAttribute('height',totalH);
+  cp.appendChild(cr); defs.appendChild(cp);
+
+  const pat=document.createElementNS(SVG_NS,'pattern');
+  pat.setAttribute('id','hatch');pat.setAttribute('patternUnits','userSpaceOnUse');
+  pat.setAttribute('width','10');pat.setAttribute('height','10');pat.setAttribute('patternTransform','rotate(-45)');
+  const hl=document.createElementNS(SVG_NS,'line');
+  hl.setAttribute('x1','0');hl.setAttribute('y1','0');hl.setAttribute('x2','0');hl.setAttribute('y2','10');
+  hl.setAttribute('stroke','#c8c3bb');hl.setAttribute('stroke-width','4');
+  pat.appendChild(hl); defs.appendChild(pat); svg.appendChild(defs);
+  return svg;
+}
+
+function _renderEntryLabels(body, entries, cw) {
+  const lf=document.createDocumentFragment();
+  for(const en of entries){
+    if(en.blocked||!en.text)continue;
+    const cells=getCells(en.si,en.ei),comps=findComponents(cells);
+    for(const comp of comps){
+      const bb=componentLabelBox(comp,cw), rows=bb.height/ROW_H, fs=rows>=3?15:rows>=2?14:13;
+      const lb=document.createElement('div'); lb.className='entry-label'; lb.dataset.entry=en.id;
+      lb.style.cssText=`top:${bb.top}px;left:${bb.left}px;width:${bb.width}px;height:${bb.height}px;font-size:${fs}px;font-weight:${en.bold?'700':'400'}`;
+      lb.textContent=en.text; lf.appendChild(lb);
+    }
+  }
+  body.appendChild(lf);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DRAG
+// ═══════════════════════════════════════════════════════════════
+function ptrToIdx(cx,cy) {
+  const wr=(activeGrid==='editor'?DOM.tableWrapEditor:DOM.tableWrap).getBoundingClientRect();
+  const rx=cx-wr.left,ry=cy-wr.top-HEADER_H; if(rx<LBL_W)return null;
+  const cw=getColW(),col=((rx-LBL_W)/cw)|0,row=(ry/ROW_H)|0;
+  if(row<0||row>=NR||col<0||col>=NC)return null; return toIdx(row,col);
+}
+function clearDragSegs(){ const s=document.querySelectorAll('.dseg'); for(let i=s.length-1;i>=0;i--)s[i].remove(); }
+
+function drawPreview(si,ei,conflict) {
+  clearDragSegs();
+  const body=activeGrid==='editor'?DOM.gridBodyEditor:DOM.gridBody;
+  const segs=getSegs(si,ei),n=segs.length,cw=getColW(),cls=conflict?'#ef4444':'#3b82f6';
+  for(let idx=0;idx<n;idx++){
+    const seg=segs[idx],isF=idx===0,isL=idx===n-1;
+    const el=document.createElement('div'); el.className='dseg'+(conflict?' conflict':'');
+    const ts=isF?0:-1,hb=isF?0:1;
+    el.style.cssText=`top:${seg.row*ROW_H+ts}px;left:${LBL_W+seg.c1*cw}px;width:${(seg.c2-seg.c1+1)*cw}px;height:${ROW_H+hb}px;border-top:${isF?'2px dashed '+cls:'none'};border-bottom:${isL?'2px dashed '+cls:'none'};border-left:2px dashed ${cls};border-right:2px dashed ${cls};border-radius:${isF&&isL?'4px':isF?'4px 4px 0 0':isL?'0 0 4px 4px':'0'}`;
+    body.appendChild(el);
+  }
+  const tt=activeGrid==='editor'?DOM.tooltipEditor:DOM.tooltip;
+  tt.style.display='block'; tt.textContent=rangeLabel(si,ei);
+}
+function hidePreview(){ clearDragSegs(); DOM.tooltip.style.display='none'; DOM.tooltipEditor.style.display='none'; }
+function onDown(cx,cy){ const idx=ptrToIdx(cx,cy); if(idx===null||occupied(idx))return; drag={si:idx,ei:idx};pdown=true; drawPreview(idx,idx,false); }
+function onMove(cx,cy){ if(!drag)return; const raw=ptrToIdx(cx,cy),ei=raw===null?drag.ei:Math.max(drag.si,raw); if(ei===drag.ei)return; drag.ei=ei; drawPreview(drag.si,drag.ei,rangeConflict(drag.si,drag.ei)); }
+function onUp(){ if(!drag){pdown=false;return;} const{si,ei}=drag; drag=null;pdown=false; hidePreview(); if(!rangeConflict(si,ei))openAdd(si,ei); }
+function isEntryEl(el){ return el.closest('[data-entry]')||el.closest('.entry-label'); }
+
+function bindGrid(wrapEl) {
+  wrapEl.addEventListener('touchstart',e=>{if(isEntryEl(e.target))return;const t=e.touches[0];onDown(t.clientX,t.clientY);},{passive:true});
+  wrapEl.addEventListener('touchmove',e=>{if(!drag)return;e.preventDefault();const t=e.touches[0];onMove(t.clientX,t.clientY);},{passive:false});
+  wrapEl.addEventListener('touchend',()=>{if(drag||pdown)onUp();},{passive:true});
+  wrapEl.addEventListener('mousedown',e=>{if(isEntryEl(e.target))return;onDown(e.clientX,e.clientY);});
+}
+window.addEventListener('mousemove',e=>{if(pdown&&drag)onMove(e.clientX,e.clientY);});
+window.addEventListener('mouseup',()=>{if(pdown)onUp();});
+
+let _resizeT=0;
+window.addEventListener('resize',()=>{ clearTimeout(_resizeT); _resizeT=setTimeout(()=>{invalidateColW();requestAnimationFrame(renderTable);},150); });
+
+// ═══════════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════════
+function openAdd(si,ei) {
+  form={text:'',color:0,blocked:false,bold:false};
+  modal={mode:'add',si,ei};
+  DOM.mTitle.textContent=fmt(toMins(si))+' 일정 추가';
+  DOM.mBadge.textContent='⏱ '+rangeLabel(si,ei);
+  DOM.mText.value=''; DOM.mBold.checked=false; DOM.mBlocked.checked=false;
+  DOM.mColorWrap.style.display=''; DOM.btnDel.style.display='none';
+  buildColors(); DOM.overlay.classList.add('show');
+  setTimeout(()=>DOM.mText.focus(),80);
+}
+function openEdit(en) {
+  form={text:en.text,color:en.color,blocked:en.blocked,bold:en.bold||false};
+  modal={mode:'edit',si:en.si,ei:en.ei,eid:en.id};
+  DOM.mTitle.textContent='일정 수정';
+  DOM.mBadge.textContent='⏱ '+rangeLabel(en.si,en.ei);
+  DOM.mText.value=en.text; DOM.mBold.checked=en.bold||false; DOM.mBlocked.checked=en.blocked;
+  DOM.mColorWrap.style.display=en.blocked?'none':''; DOM.btnDel.style.display='';
+  buildColors(); DOM.overlay.classList.add('show');
+}
+function closeModal(){ DOM.overlay.classList.remove('show'); }
+function saveEntry() {
+  form.text=DOM.mText.value.trim(); form.bold=DOM.mBold.checked; form.blocked=DOM.mBlocked.checked;
+  const entries=currentEntries();
+  if(modal.mode==='add') entries.push({id:uid(),si:modal.si,ei:modal.ei,text:form.text,color:form.color,blocked:form.blocked,bold:form.bold});
+  else{ const en=entries.find(e=>e.id===modal.eid); if(en)Object.assign(en,{text:form.text,color:form.color,blocked:form.blocked,bold:form.bold}); }
+  saveEntries(entries); invalidateOcc(); save(); closeModal(); requestAnimationFrame(renderTable);
+}
+function delEntry() {
+  const doDelete = () => {
+    saveEntries(currentEntries().filter(e=>e.id!==modal.eid));
+    invalidateOcc(); save(); closeModal(); showToast('일정이 삭제되었습니다'); requestAnimationFrame(renderTable);
+  };
+  if(settings.confirmDel) {
+    closeModal();
+    showConfirm('일정을 삭제하시겠습니까?', rangeLabel(modal.si, modal.ei), doDelete);
+  } else doDelete();
+}
+function buildColors() {
+  const frag=document.createDocumentFragment();
+  const colors = getColors();
+  for(let i=0;i<colors.length;i++){
+    const c=colors[i],d=document.createElement('div');
+    d.className='cdot'+(i===form.color?' on':'');
+    d.style.background=c.bg; d.style.borderColor=c.bd;
+    d.onclick=()=>{form.color=i;buildColors();}; frag.appendChild(d);
+  }
+  DOM.mColors.innerHTML=''; DOM.mColors.appendChild(frag);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ROUTINE LIST
+// ═══════════════════════════════════════════════════════════════
+const ROUTINE_ICONS=['📋','🌅','🌙','💪','📚','🧘','🎯','⚡','🏃','☕'];
+
+function renderRoutineList() {
+  const list=DOM.routineList, rids=Object.keys(routines);
+  if(!rids.length){ list.innerHTML='<div class="routine-empty"><div class="icon">📋</div>저장된 루틴이 없습니다.<br>새 루틴 추가 버튼을 눌러 시작하세요.</div>'; return; }
+  const frag=document.createDocumentFragment();
+  for(const rid of rids){
+    const r=routines[rid], count=(r.entries||[]).length;
+    const totalMins=(r.entries||[]).reduce((a,e)=>a+(e.ei-e.si+1)*15,0);
+    const hh=(totalMins/60)|0,mm=totalMins%60;
+    const durStr=hh?(mm?hh+'시간 '+mm+'분':hh+'시간'):mm+'분';
+    const card=document.createElement('div'); card.className='routine-card';
+    const head=document.createElement('div'); head.className='routine-card-head';
+    // XSS-safe: textContent only, no innerHTML with user data
+    const iconEl=document.createElement('div'); iconEl.className='routine-card-icon'; iconEl.textContent=r.icon||'📋';
+    const info=document.createElement('div');
+    const nameEl=document.createElement('div'); nameEl.className='routine-card-name'; nameEl.textContent=r.name||'이름 없는 루틴';
+    const metaEl=document.createElement('div'); metaEl.className='routine-card-meta'; metaEl.textContent=count+'개 항목 · 총 '+durStr;
+    info.append(nameEl,metaEl); head.append(iconEl,info);
+    const actions=document.createElement('div'); actions.className='routine-card-actions';
+    const bEdit=document.createElement('button'); bEdit.className='rc-btn'; bEdit.textContent='✏ 편집'; bEdit.onclick=e=>{e.stopPropagation();openRoutineEditor(rid);};
+    const bApply=document.createElement('button'); bApply.className='rc-btn primary'; bApply.textContent='📅 요일에 적용'; bApply.onclick=e=>{e.stopPropagation();openApplyModal(rid);};
+    const bDel=document.createElement('button'); bDel.className='rc-btn danger'; bDel.textContent='삭제'; bDel.onclick=e=>{e.stopPropagation();deleteRoutine(rid);};
+    actions.append(bEdit,bApply,bDel); card.append(head,actions); frag.appendChild(card);
+  }
+  list.innerHTML=''; list.appendChild(frag);
+}
+
+function addNewRoutine() {
+  const rid='r'+uid(), iconIdx=Object.keys(routines).length%ROUTINE_ICONS.length;
+  routines[rid]={id:rid,name:'새 루틴',icon:ROUTINE_ICONS[iconIdx],entries:[]};
+  save(); openRoutineEditor(rid);
+}
+function deleteRoutine(rid){
+  showConfirm(
+    '루틴을 삭제하시겠습니까?',
+    '이 루틴과 요일에 적용된 동일 일정이 모두 삭제됩니다.',
+    () => {
+      const rEntries = routines[rid]?.entries || [];
+      // 모든 요일에서 해당 루틴 엔트리 제거 (rid 매칭 + 콘텐츠 폴백 매칭)
+      for(const dk of ALL_DAY_KEYS){
+        if(!db[dk]) continue;
+        db[dk] = db[dk].filter(e => {
+          // rid 태그가 있으면 정확 매칭
+          if(e.rid === rid) return false;
+          // rid 없는 구 데이터: 루틴 엔트리와 si/ei/text/color 완전 일치 시 제거
+          if(!e.rid && rEntries.some(re => re.si===e.si && re.ei===e.ei && re.text===e.text && re.color===e.color))
+            return false;
+          return true;
+        });
+      }
+      delete routines[rid];
+      save(); invalidateOcc();
+      showToast('루틴이 삭제되었습니다');
+      renderRoutineList();
+    }
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ROUTINE EDITOR
+// ═══════════════════════════════════════════════════════════════
+function openRoutineEditor(rid) {
+  editingRid=rid; activeGrid='editor';
+  DOM.editorNameInput.value=routines[rid].name||'';
+  showView('viewEditor'); requestAnimationFrame(renderTable);
+}
+function saveRoutine() {
+  const name=DOM.editorNameInput.value.trim()||'이름 없는 루틴';
+  if(editingRid&&routines[editingRid])routines[editingRid].name=name;
+  save(); activeGrid='main'; editingRid=null;
+  showView('viewRoutines'); renderRoutineList();
+}
+function editorBack(){ activeGrid='main'; editingRid=null; showView('viewRoutines'); renderRoutineList(); }
+
+// ═══════════════════════════════════════════════════════════════
+// APPLY ROUTINE TO DAY(S) — 토글 시스템 (적용 + 해제 + 잠금)
+// ═══════════════════════════════════════════════════════════════
+let applyOriginalDays = new Set();
+let applyLockedDays = new Map();   // dayKey → 루틴 이름
+
+const ALL_DAY_KEYS = ['mon','tue','wed','thu','fri','sat','sun'];
+
+function getAppliedDays(rid) {
+  const days = new Set();
+  for(const dk of ALL_DAY_KEYS) {
+    if(db[dk] && db[dk].some(e => e.rid === rid)) days.add(dk);
+  }
+  return days;
+}
+
+function getLockedDays(currentRid) {
+  const locked = new Map();
+  const otherRids = Object.keys(routines).filter(r => r !== currentRid);
+
+  for(const dk of ALL_DAY_KEYS) {
+    if(!db[dk] || !db[dk].length) continue;
+
+    // 방법1: rid 태그로 직접 판별
+    const foundByRid = new Set();
+    for(const e of db[dk]) {
+      if(e.rid && e.rid !== currentRid && routines[e.rid]) {
+        foundByRid.add(e.rid);
+      }
+    }
+
+    // 방법2: rid 없는 구 데이터 → 다른 루틴 엔트리와 콘텐츠 매칭
+    for(const oRid of otherRids) {
+      if(foundByRid.has(oRid)) continue;
+      const rEntries = routines[oRid]?.entries || [];
+      if(!rEntries.length) continue;
+      const matched = db[dk].some(e =>
+        !e.rid && rEntries.some(re =>
+          re.si === e.si && re.ei === e.ei && re.text === e.text && re.color === e.color
+        )
+      );
+      if(matched) foundByRid.add(oRid);
+    }
+
+    if(foundByRid.size) {
+      const firstRid = [...foundByRid][0];
+      const name = routines[firstRid]?.name || '다른 루틴';
+      const suffix = foundByRid.size > 1 ? ` 외 ${foundByRid.size-1}개` : '';
+      locked.set(dk, name + suffix);
+    }
+  }
+  return locked;
+}
+
+function openApplyModal(rid) {
+  applyRid = rid;
+  applyOriginalDays = getAppliedDays(rid);
+  applyLockedDays = getLockedDays(rid);
+  applySelDays = new Set(applyOriginalDays);
+  DOM.applyTitle.textContent = '📅 ' + (routines[rid]?.name || '루틴') + ' 적용 관리';
+  renderApplyDays();
+  DOM.applyOverlay.classList.add('show');
+}
+
+function renderApplyDays() {
+  const frag = document.createDocumentFragment();
+  getDayKeys().forEach((key, i) => {
+    const btn = document.createElement('button');
+    const wasApplied = applyOriginalDays.has(key);
+    const isSelected = applySelDays.has(key);
+    const isLocked = applyLockedDays.has(key) && !wasApplied;
+
+    let cls = 'apply-day-btn';
+    if (isLocked) cls += ' locked';
+    else if (isSelected && wasApplied) cls += ' applied';
+    else if (isSelected && !wasApplied) cls += ' selected';
+    else if (!isSelected && wasApplied) cls += ' will-remove';
+
+    btn.className = cls;
+    btn.textContent = getDayLabel()[i];
+
+    if (isLocked) {
+      btn.title = applyLockedDays.get(key) + ' 적용됨';
+      btn.onclick = () => showToast(getDayLabel()[i] + ': ' + applyLockedDays.get(key) + ' 적용 중');
+    } else {
+      btn.onclick = () => {
+        if (applySelDays.has(key)) applySelDays.delete(key);
+        else applySelDays.add(key);
+        renderApplyDays();
+      };
+    }
+    frag.appendChild(btn);
+  });
+  DOM.applyDayRow.innerHTML = '';
+  DOM.applyDayRow.appendChild(frag);
+
+  const infoEl = document.getElementById('applyLockInfo');
+  if(infoEl) {
+    infoEl.style.display = applyLockedDays.size ? '' : 'none';
+    if(applyLockedDays.size) infoEl.textContent = '🔒 = 다른 루틴이 적용된 요일 (변경 불가)';
+  }
+}
+
+function applyConfirm() {
+  if (!applyRid) return;
+  const rEntries = routines[applyRid]?.entries || [];
+  let addCount = 0, removeCount = 0;
+
+  for (const dk of ALL_DAY_KEYS) {
+    const wasApplied = applyOriginalDays.has(dk);
+    const isSelected = applySelDays.has(dk);
+    const isLocked = applyLockedDays.has(dk) && !wasApplied;
+    if (isLocked) continue;
+
+    if (isSelected && !wasApplied) {
+      if (!db[dk]) db[dk] = [];
+      for (const re of rEntries) {
+        const conflict = db[dk].some(e => re.si <= e.ei && re.ei >= e.si);
+        if (!conflict) db[dk].push({...re, id: uid(), rid: applyRid});
+      }
+      addCount++;
+    } else if (!isSelected && wasApplied) {
+      if (db[dk]) db[dk] = db[dk].filter(e => e.rid !== applyRid);
+      removeCount++;
+    }
+  }
+
+  save(); invalidateOcc();
+  DOM.applyOverlay.classList.remove('show');
+
+  const msgs = [];
+  if (addCount) msgs.push(addCount + '개 요일 적용');
+  if (removeCount) msgs.push(removeCount + '개 요일 해제');
+  showToast(msgs.length ? msgs.join(', ') : '변경사항 없음');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════════════════════
+function renderSettingsView() {
+  // 테마 도트 렌더
+  renderThemeDots();
+
+  // 토글 스위치 바인딩
+  const toggles = [
+    [DOM.toggleNowLine,   'showNowLine'],
+    [DOM.toggleEmptyHL,   'emptyHL'],
+    [DOM.toggleCompact,   'compactMode'],
+    [DOM.toggleConfirmDel,'confirmDel'],
+    [DOM.toggleSunStart,  'sunStart'],
+  ];
+  for(const [el, key] of toggles) {
+    if(!el) continue;
+    el.className = 'toggle-switch' + (settings[key] ? ' on' : '');
+    el.onclick = () => {
+      settings[key] = !settings[key];
+      save();
+      renderSettingsView();
+      // sunStart 변경 시 요일 순서 갱신
+      if(key === 'sunStart') { renderDayRow(); }
+    };
+  }
+
+  // 초기화
+  DOM.clearAllBtn.onclick = () => {
+    showConfirm('모든 데이터를 초기화하시겠습니까?', '루틴과 일정이 모두 삭제됩니다.', () => {
+      db = {}; routines = {};
+      settings = { emptyHL:false, showNowLine:true, compactMode:false, confirmDel:false, sunStart:false };
+      saveImmediate(); showToast('초기화되었습니다'); showView('viewMain');
+    });
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DRAWER & THEME
+// ═══════════════════════════════════════════════════════════════
+function openDrawer() {
+  DOM.drawer.classList.add('open'); DOM.drawerBackdrop.classList.add('show'); DOM.menuBtn.classList.add('active');
+  const today=todayKey(), idx=getDayKeys().indexOf(today);
+  DOM.drawerDayLine.textContent='오늘: '+getDayLabel()[idx]+'요일';
+}
+function closeDrawer() { DOM.drawer.classList.remove('open'); DOM.drawerBackdrop.classList.remove('show'); DOM.menuBtn.classList.remove('active'); }
+
+function renderThemeDots() {
+  const frag=document.createDocumentFragment();
+  THEMES.forEach((t,i)=>{
+    const d=document.createElement('button'); d.className='theme-dot'+(i===themeIdx?' active':'');
+    d.style.background=t.swatch; d.title=t.name; d.onclick=()=>applyTheme(i); frag.appendChild(d);
+  });
+  DOM.themeRow.innerHTML=''; DOM.themeRow.appendChild(frag);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Confirm dialog
+// ═══════════════════════════════════════════════════════════════
+let _confirmCb=null;
+function showConfirm(title,msg,onYes) {
+  DOM.confirmTitle.textContent=title;
+  DOM.confirmMsg.textContent=msg;
+  _confirmCb=onYes;
+  DOM.confirmOverlay.classList.add('show');
+}
+function closeConfirm(){ DOM.confirmOverlay.classList.remove('show'); _confirmCb=null; }
+
+// ═══════════════════════════════════════════════════════════════
+// Toast
+// ═══════════════════════════════════════════════════════════════
+let _toastEl=null, _toastT=0;
+function showToast(msg) {
+  if(!_toastEl){ _toastEl=document.createElement('div'); _toastEl.style.cssText='position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:8px 18px;border-radius:20px;font-size:12px;z-index:9999;pointer-events:none;transition:opacity .3s;opacity:0;'; document.body.appendChild(_toastEl); }
+  _toastEl.textContent=msg; _toastEl.style.opacity='1';
+  clearTimeout(_toastT); _toastT=setTimeout(()=>{_toastEl.style.opacity='0';},1800);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EVENT BINDINGS
+// ═══════════════════════════════════════════════════════════════
+DOM.menuBtn.onclick        = ()=> DOM.drawer.classList.contains('open')?closeDrawer():openDrawer();
+DOM.drawerBackdrop.onclick = closeDrawer;
+DOM.drawerCloseBtn.onclick = closeDrawer;
+DOM.drawerMainMenu.onclick     = ()=>{showView('viewMain');};
+DOM.drawerRoutinesMenu.onclick = ()=>{showView('viewRoutines');renderRoutineList();};
+DOM.drawerSettingsBtn.onclick  = ()=>{showView('viewSettings');renderSettingsView();closeDrawer();};
+DOM.routinesBackBtn.onclick    = ()=>showView('viewMain');
+DOM.addRoutineBtn.onclick      = addNewRoutine;
+DOM.routineSettingsBtn.onclick = ()=>{showView('viewSettings');renderSettingsView();};
+DOM.settingsBackBtn.onclick    = ()=>{showView('viewRoutines');renderRoutineList();};
+DOM.editorBackBtn.onclick  = editorBack;
+DOM.editorSaveBtn.onclick  = saveRoutine;
+DOM.mBold.addEventListener('change',function(){form.bold=this.checked;});
+DOM.mBlocked.addEventListener('change',function(){form.blocked=this.checked;DOM.mColorWrap.style.display=this.checked?'none':'';});
+DOM.btnSave.onclick   = saveEntry;
+DOM.btnDel.onclick     = delEntry;
+DOM.btnCancel.onclick  = closeModal;
+DOM.overlay.addEventListener('click',function(e){if(e.target===this)closeModal();});
+DOM.mText.addEventListener('keydown',e=>{if(e.key==='Enter')saveEntry();});
+DOM.applyConfirmBtn.onclick = applyConfirm;
+DOM.applyCancelBtn.onclick  = ()=>DOM.applyOverlay.classList.remove('show');
+DOM.applyOverlay.addEventListener('click',function(e){if(e.target===this)this.classList.remove('show');});
+DOM.confirmYesBtn.onclick  = ()=>{ if(_confirmCb)_confirmCb(); closeConfirm(); };
+DOM.confirmNoBtn.onclick   = closeConfirm;
+DOM.confirmOverlay.addEventListener('click',function(e){if(e.target===this)closeConfirm();});
+
+bindGrid(DOM.tableWrap);
+bindGrid(DOM.tableWrapEditor);
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+applyTheme(themeIdx);
+renderDayRow();
+requestAnimationFrame(renderTable);
+
+// 현재 시각 행 강조 자동 갱신 (매 분 체크)
+let _lastHighlightHour = new Date().getHours();
+setInterval(() => {
+  const h = new Date().getHours();
+  if (h !== _lastHighlightHour) {
+    _lastHighlightHour = h;
+    if (activeGrid === 'main') requestAnimationFrame(renderTable);
+  }
+}, 30000);
+
+// PWA Service Worker 등록
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}
+
+</script>
+</body>
+</html>
